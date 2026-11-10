@@ -1,247 +1,251 @@
-# Task 1A — Ackermann Steering
+# eYRC 2026–27 | Niti Vahan
 
-Fill in `ackermann_wheel_angles(delta)` in `ackermann_steering.py`.
+A collection of implementations for the **Niti Vahan (NV)** theme of the e-Yantra Robotics Competition (eYRC) 2026–27. This repository contains work for Tasks **1A, 1B, 1C, 2A, 2B, and 2C**, covering Ackermann steering, path tracking, lane detection, arena navigation, sign and obstacle detection, and ArUco-based parking.
 
-```sh
-conda activate NV_<3576>
-cd ~/eYRC_26-27_Niti-Vahan/task1a
+> **Note:** This README consolidates the task-level instructions provided with the project. Refer to the official eYRC theme book and submission procedure for complete evaluation and submission requirements.
+
+---
+
+## Table of contents
+
+- [Project tasks](#project-tasks)
+  - [Task 1A — Ackermann Steering](#task-1a--ackermann-steering)
+  - [Task 1B — Path Tracking](#task-1b--path-tracking)
+  - [Task 1C — Lane Detection](#task-1c--lane-detection)
+  - [Task 2A — Arena Navigation](#task-2a--arena-navigation)
+  - [Task 2B — Sign and Obstacle Detection](#task-2b--sign-and-obstacle-detection)
+  - [Task 2C — Parking with ArUco](#task-2c--parking-with-aruco)
+- [Prerequisites](#prerequisites)
+- [Environment setup](#environment-setup)
+- [Repository layout](#repository-layout)
+- [Important implementation notes](#important-implementation-notes)
+- [Submission](#submission)
+
+---
+
+## Project tasks
+
+### Task 1A — Ackermann Steering
+
+**Objective:** Implement the Ackermann steering geometry that converts a steering input into the corresponding left and right front-wheel angles.
+
+**Implementation**
+- Complete `ackermann_wheel_angles(delta)` in `ackermann_steering.py`.
+- Read the geometry values from the provided constants rather than hardcoding them.
+
+| Constant | Value | Description |
+|---|---:|---|
+| `WHEELBASE` | 0.120 m | Distance from the front axle to the rear axle |
+| `TRACK_WIDTH` | 0.110 m | Distance between the left and right wheel centres |
+| `WHEEL_OFFSET` | 0.0275 m | Distance from the kingpin axis to the wheel centre |
+
+**Run**
+
+```bash
+conda activate NV_3576
+cd task1a
 python ackermann_steering.py
 ```
 
-No simulator needed — this subtask is pure geometry. Running the file executes
-the test block at the bottom, which sweeps `delta` from -0.35 to 0.35 rad and
-prints the pair of wheel angles your function returns for each.
+No simulator is required. The test block sweeps `delta` from `-0.35` to `0.35` radians and prints the resulting wheel-angle pairs.
 
-| Constant | Value | Meaning |
-|---|---:|---|
-| `WHEELBASE` | 0.120 m | front axle to rear axle |
-| `TRACK_WIDTH` | 0.110 m | left wheel centre to right wheel centre |
-| `WHEEL_OFFSET` | 0.0275 m | kingpin axis to wheel centre |
+**Submission file:** Rename the completed file to `NV_Task1A.py`. Follow the Submission page in the eYRC theme book.
 
-Read these from the constants — do not hardcode the numbers.
+---
 
-**To submit:** rename your file to `NV_Task1A.py` and upload it. See the
-Submission page in the theme book.
+### Task 1B — Path Tracking
 
-# Task 1B — Path Tracking
+**Objective:** Implement Ackermann wheel-angle calculation and path-tracking steering control for the simulated vehicle.
 
-Fill in `ackermann_wheel_angles()` and `compute_steering()` in `path_tracking.py`.
+**Implementation**
+- Complete `ackermann_wheel_angles()` and `compute_steering()` in `path_tracking.py`.
 
-## Setup
+**Scene setup**
+1. Open CoppeliaSim.
+2. Load `Task_1B.ttt` from the Task 1B folder.
+3. Keep the simulation **stopped**. The script starts and stops it.
 
-1. Launch **CoppeliaSim**.
-2. **File → Open scene…** and pick `Task_1B.ttt` from this folder.
-3. Leave the simulation **stopped** — do not press the ▶️ Play button. The
-   script starts and stops it for you.
-4. In a terminal:
+**Run**
 
-```sh
-conda activate NV_<Team-ID>
-cd ~/eYRC_26-27_Niti-Vahan/task1b
+```bash
+conda activate NV_3576
+cd task1b
 python path_tracking.py
 ```
 
-## The scene
+**Scene reference**
 
-| Object in the hierarchy | What it is |
+| Scene object | Description |
 |---|---|
-| `/Floor` | the road, 5 m long and 1 m wide |
-| `/Niti_Vahan` | the vehicle body |
-| `/Niti_Vahan/steeringLeft`, `steeringRight` | front steering joints — your wheel angles go here |
-| `/Niti_Vahan/motorLeft`, `motorRight` | driven front wheels, held at a constant speed |
-| `/Niti_Vahan/freeAxisLeft`, `freeAxisRight` | rear wheels, free-spinning |
+| `/Floor` | Road, 5 m long and 1 m wide |
+| `/Niti_Vahan` | Vehicle body |
+| `/Niti_Vahan/steeringLeft`, `/Niti_Vahan/steeringRight` | Front steering joints |
+| `/Niti_Vahan/motorLeft`, `/Niti_Vahan/motorRight` | Driven front wheels, held at constant speed |
+| `/Niti_Vahan/freeAxisLeft`, `/Niti_Vahan/freeAxisRight` | Free-spinning rear wheels |
 
-The vehicle drives along world **-x**, so its left-hand side faces **-y**.
+The vehicle travels along world **−x**, with its left-hand side facing **−y**.
 
 | Lane | Lateral position |
-|:---:|---|
+|:---:|---:|
 | `L` | y = 0.00 m |
 | `R` | y = 0.20 m |
 
-## Driving it
+**Controls**
+- Enter `L` or `R` while the script is running to change lanes.
+- Enter `q` to stop.
+- Each run lasts 120 simulated seconds and writes `trajectory.csv` by default.
 
-While the run is going, type `L` or `R` and press Enter to change lane, `q` to
-stop. Every run lasts 120 simulated seconds and writes `trajectory.csv`.
+**Optional command-line arguments**
 
-```sh
-python path_tracking.py --out run1.csv     # write the CSV elsewhere
-python path_tracking.py --log-rate 20      # rows per second (default 10)
-python path_tracking.py --schedule "15:R,60:L,95:R"  # scripted lane changes
+```bash
+python path_tracking.py --out run1.csv
+python path_tracking.py --log-rate 20
+python path_tracking.py --schedule "15:R,60:L,95:R"
 ```
 
-**To submit:** see the Submission page in the theme book.
+- `--out`: Output CSV file path.
+- `--log-rate`: Number of CSV rows per second (default: 10).
+- `--schedule`: Script lane changes using the `time:lane` format.
 
-# Task 1C - Lane Detection Boilerplate
+Refer to the eYRC theme book for submission instructions.
 
-Niti Vahan (NV), eYRC 2026-27.
+---
 
-## Files
+### Task 1C — Lane Detection
 
-| File | What it is |
+**Objective:** Detect the lane centre and determine whether the dashed white centre line is to the left or right of the vehicle.
+
+**Files**
+
+| File | Description |
 |---|---|
-| `lane_detection.py` | The boilerplate. Fill in `detect_lane()`; leave everything else alone. |
-| `public/` | The 20 video clips - 640 x 480, 20 fps, 200 frames each. |
+| `lane_detection.py` | Boilerplate; implement `detect_lane()` |
+| `public/` | 20 video clips, each 640 × 480 pixels, 20 FPS, and 200 frames |
 
-## Setup
+The video clips are included in the repository; no additional download or extraction is required.
 
-Nothing to download or unzip: cloning this repository gives you the clips.
+**Implementation**
 
-```text
-task1c/
-├── lane_detection.py
-└── public/
-    ├── clip_01.mp4
-    └── ...          (clip_20.mp4)
-```
-
-No simulator needed. Check your environment has what you need:
-
-```sh
-conda activate NV_<3576>
-cd ~/eYRC_26-27_Niti-Vahan/task1c
-python -c "import cv2, numpy; print(cv2.__version__, numpy.__version__)"
-```
-
-## Usage
-
-```sh
-# one clip
-python lane_detection.py public/clip_01.mp4
-
-# every clip in the folder (press q to stop) - a folder works on Windows too
-python lane_detection.py public --show
-
-# write the per-frame results to a file
-python lane_detection.py public --out results.json
-```
-
-## What you implement
-
-Exactly one function:
+Complete the following function:
 
 ```python
 def detect_lane(frame):
-    return {"center_x": <int>, "lane": "left" | "right" | "unknown"}
+    return {
+        "center_x": <int>,
+        "lane": "left" | "right" | "unknown"
+    }
 ```
 
-- `center_x` - x-pixel of the lane centre in this frame, `-1` if the lane was not found.
-- `lane` - `"left"` if the dashed white centre line is to the **right** of the vehicle,
-  `"right"` if it is to the **left**, `"unknown"` if you cannot tell.
+Return values:
+- `center_x`: x-coordinate of the lane centre in pixels; use `-1` if the lane is not detected.
+- `lane`:
+  - `"left"` if the dashed white centre line is to the **right** of the vehicle.
+  - `"right"` if the dashed white centre line is to the **left** of the vehicle.
+  - `"unknown"` if the lane cannot be determined.
 
-`detect_lane()` must only compute and return. No `cv2.imshow()`, `cv2.waitKey()`,
-`cv2.imwrite()` or `print()` inside it - visualisation goes in `draw_overlay()`,
-which is called from `process_video()`.
+`detect_lane()` must only process the frame and return a result. Do not use `cv2.imshow()`, `cv2.waitKey()`, `cv2.imwrite()`, or `print()` inside this function. Visualisation is handled by `draw_overlay()` through `process_video()`.
 
-**To submit:** see the Submission page in the theme book.
+**Check dependencies**
 
-# Task 2A - Arena Navigation Boilerplate
-
-Niti Vahan (NV), eYRC 2026-27.
-
-## Files
-
-| File | What it is |
-|---|---|
-| `task2a.py` | The boilerplate. Fill in `detect_lane()` and `compute_control()`; leave everything else alone. |
-| `Task_2A.ttt` | The CoppeliaSim scene. Open it before you run anything. |
-
-## Requirements
-
-Your `NV_<Team-ID>` environment from Task 0 already has what you need - nothing
-new to install since Task 1:
-
-```sh
-conda activate NV_<Team-ID>
-python -c "import cv2, numpy, coppeliasim_zmqremoteapi_client; print('ok')"
+```bash
+conda activate NV_3576
+cd task1c
+python -c "import cv2, numpy; print(cv2.__version__, numpy.__version__)"
 ```
 
-## Usage
+**Run**
 
-1. Launch CoppeliaSim and open `Task_2A.ttt`.
-2. Press **▶ Play**.
-3. In a terminal:
+```bash
+# Process one video
+python lane_detection.py public/clip_01.mp4
 
-```sh
-conda activate NV_<Team-ID>
-python task2a.py
+# Process all clips in the folder
+python lane_detection.py public --show
+
+# Save per-frame results
+python lane_detection.py public --out results.json
 ```
 
-Press **⏹ Stop** then **▶ Play** to put the vehicle back at its starting point
-between runs.
+Press `q` to stop visual playback when using `--show`.
 
-## What you implement
+---
 
-Two functions, and nothing else:
+### Task 2A — Arena Navigation
+
+**Objective:** Detect the lane and compute steering and speed commands to keep the vehicle aligned within the lane during arena navigation.
+
+**Files**
+- `task2a.py` — boilerplate containing the functions to implement.
+- `Task_2A.ttt` — CoppeliaSim scene.
+
+**Implementation**
+
+Complete only these two functions:
 
 ```python
 def detect_lane(frame):
     # frame is a corrected BGR image from the vehicle's camera
-    return <anything compute_control() can use>
+    return detection
 
 def compute_control(detection, stop_requested):
     return left_angle, right_angle, speed
 ```
 
-- `left_angle`, `right_angle` - the two **front-wheel** angles, in **radians**.
-  The scene's steering joints are **positive to the left**. Nothing is clamped
-  for you; the vehicle's own limit is 45°. Use your Task 1A geometry to split
-  one steering angle into these two.
-- `speed` - drive motor target, in rad/s. `0.0` holds the vehicle still.
-- `stop_requested` - `True` while the evaluation is holding you at a stop point.
-  It is a **level**, not a pulse: stay stationary for as long as it is `True`.
-  Do not time the stop yourself.
+The returned control values are:
+- `left_angle`, `right_angle`: Front-wheel steering angles in radians. The steering joints are positive to the left. The vehicle's steering limit is 45°.
+- `speed`: Drive motor target in rad/s. A value of `0.0` holds the vehicle stationary.
+- `stop_requested`: A level signal. When it is `True`, keep the vehicle stationary for as long as it remains `True`; do not implement your own stop timer.
 
-Everything below the `DO NOT EDIT BELOW THIS LINE` marker is provided: the
-connection, the handle lookup, the camera read, the four joint writes and the
-loop. None of it is a decision you are marked on - it is there so every team
-reads the same picture and drives the same vehicle.
+Use the Ackermann geometry from Task 1A to split the steering angle between the two front wheels.
 
-## Where the marks are
+**Requirements**
+- The `NV_3576` environment created for Task 0 should already contain the required dependencies.
+- Check the environment with:
 
-Most of Task 2A is **how closely you hold the middle of your lane**, measured
-against a centreline surveyed from the painted road edges and the dashed
-divider. Being on the correct side of the divider is not enough - weaving
-across your own lane loses marks. The inner lane is worth more than the outer
-one.
-
-The evaluation tool on your machine **records** the two laps; the marks are
-worked out on the portal when you upload the recording. So the tool will not
-print a score - watch the simulator instead, and submit to see the marks.
-
-## What your script must never do
-
-The evaluation resets the scene, places the vehicle in the lane under test, and
-starts and stops the simulation. Your script only reads the camera and drives
-the joints. Calling `sim.startSimulation()`, `sim.stopSimulation()` or
-`sim.setObjectPosition()` on the vehicle fights it for control of the run - the
-evaluator reports these when it finds them.
-
-Full instructions are in the theme book.
-
-# Task 2B - Sign & Obstacle Detection Boilerplate
-
-Niti Vahan (NV), eYRC 2026-27.
-
-## Files
-
-| File | What it is |
-|---|---|
-| `sign_obstacle_detection.py` | The boilerplate. Fill in `detect_signs()` and `detect_obstacle()`; leave everything else alone. |
-| `public/` | The public set of images to develop against. |
-| `reference_images/` | Parking/Hospital reference crops (`P.jpg`, `Hospital.png`), shipped for implementations that want to match against them. Not part of the submission zip - see Submission Procedure. |
-
-## Requirements
-
-Your `NV_<Team-ID>` environment from Task 0 already has what you need:
-
-```sh
-conda activate NV_<Team-ID>
-python -c "import cv2, numpy; print(cv2.__version__, numpy.__version__)"
+```bash
+conda activate NV_3576
+python -c "import cv2, numpy, coppeliasim_zmqremoteapi_client; print('ok')"
 ```
 
-## What you implement
+**Run**
+1. Open CoppeliaSim and load `Task_2A.ttt`.
+2. Press **Play** in CoppeliaSim.
+3. Run the script:
 
-Two functions:
+```bash
+conda activate NV_3576
+python task2a.py
+```
+
+To reset the vehicle to its starting point between runs, press **Stop** and then **Play** in CoppeliaSim.
+
+**Evaluation notes**
+- Lane-centering accuracy is a major part of the evaluation. The vehicle is measured against a centreline surveyed from the road edges and dashed divider.
+- Staying on the correct side of the divider alone is not sufficient; weaving within the lane reduces marks.
+- The inner lane carries more marks than the outer lane.
+- The evaluation tool records two laps. The score is calculated on the portal after the recording is uploaded; the local tool does not print a score.
+
+**Important restriction:** The evaluator controls scene resets and simulation start/stop. Do not call `sim.startSimulation()`, `sim.stopSimulation()`, or `sim.setObjectPosition()` on the vehicle from your script.
+
+---
+
+### Task 2B — Sign and Obstacle Detection
+
+**Objective:** Detect traffic signs and obstacles in the supplied images.
+
+**Files**
+
+| File or folder | Description |
+|---|---|
+| `sign_obstacle_detection.py` | Boilerplate; implement `detect_signs()` and `detect_obstacle()` |
+| `public/` | Public images for development and testing |
+| `reference_images/` | Parking and Hospital reference crops (`P.jpg`, `Hospital.png`) |
+
+The reference images are intended for implementations that use image matching. They are not part of the submission ZIP; consult the official Submission Procedure.
+
+**Implementation**
+
+Complete these two functions:
 
 ```python
 def detect_signs(image):
@@ -251,132 +255,178 @@ def detect_obstacle(image):
     return {"present": <bool>, "area": <int>}
 ```
 
-- `detect_signs()` - one entry per sign visible in the image; an empty list if there
-  are none. An image can hold more than one sign at once.
-  `SIGN_LABELS` is `("School", "Speed40", "Parking", "Hospital")`.
-- `detect_obstacle()` - whether the obstacle is visible, and its area in pixels if so
-  (`0` when `present` is `False`).
+**Sign detection**
+- Return one entry for each sign visible in the image.
+- Return an empty list if no signs are detected.
+- An image may contain more than one sign.
+- Valid labels are defined by `SIGN_LABELS`:
 
-Both functions must only compute and return. No `cv2.imshow()`, `cv2.waitKey()`,
-`cv2.imwrite()` or `print()` inside them - reading images and reporting results is
-the evaluator's job, not this file's. There is no `main()` here to run directly;
-use the evaluation tool (`eyantra-autoeval evaluate --task 2b`) to run your code
-against the public images.
+```python
+("School", "Speed40", "Parking", "Hospital")
+```
 
-Full instructions are in the theme book.
+**Obstacle detection**
+- Return whether an obstacle is present and its area in pixels.
+- Set `area` to `0` when `present` is `False`.
 
+Both functions must only compute and return their results. Do not use `cv2.imshow()`, `cv2.waitKey()`, `cv2.imwrite()`, or `print()` inside either function.
 
-# Task 2B - Sign & Obstacle Detection Boilerplate
+**Check dependencies**
 
-Niti Vahan (NV), eYRC 2026-27.
-
-## Files
-
-| File | What it is |
-|---|---|
-| `sign_obstacle_detection.py` | The boilerplate. Fill in `detect_signs()` and `detect_obstacle()`; leave everything else alone. |
-| `public/` | The public set of images to develop against. |
-| `reference_images/` | Parking/Hospital reference crops (`P.jpg`, `Hospital.png`), shipped for implementations that want to match against them. Not part of the submission zip - see Submission Procedure. |
-
-## Requirements
-
-Your `NV_<Team-ID>` environment from Task 0 already has what you need:
-
-```sh
-conda activate NV_<Team-ID>
+```bash
+conda activate NV_3576
 python -c "import cv2, numpy; print(cv2.__version__, numpy.__version__)"
 ```
 
-## What you implement
+**Evaluate**
 
-Two functions:
+There is no standalone `main()` in this boilerplate. Run the official evaluation tool against the public images:
 
-```python
-def detect_signs(image):
-    return [{"label": <one of SIGN_LABELS>, "area": <int>}, ...]
-
-def detect_obstacle(image):
-    return {"present": <bool>, "area": <int>}
+```bash
+eyantra-autoeval evaluate --task 2b
 ```
 
-- `detect_signs()` - one entry per sign visible in the image; an empty list if there
-  are none. An image can hold more than one sign at once.
-  `SIGN_LABELS` is `("School", "Speed40", "Parking", "Hospital")`.
-- `detect_obstacle()` - whether the obstacle is visible, and its area in pixels if so
-  (`0` when `present` is `False`).
+---
 
-Both functions must only compute and return. No `cv2.imshow()`, `cv2.waitKey()`,
-`cv2.imwrite()` or `print()` inside them - reading images and reporting results is
-the evaluator's job, not this file's. There is no `main()` here to run directly;
-use the evaluation tool (`eyantra-autoeval evaluate --task 2b`) to run your code
-against the public images.
+### Task 2C — Parking with ArUco
 
-Full instructions are in the theme book.
+**Objective:** Park the vehicle in one of two parking bays by using the ArUco marker associated with the target bay.
 
+**Files**
 
-
-
-
-# Task 2C - Parking with ArUco
-
-Park the vehicle in one of two bays, using the ArUco marker on that bay.
-
-## What is in here
-
-| File | What it is |
+| File | Description |
 |---|---|
-| `Task_2C.ttt` | The CoppeliaSim scene: a road, two parking bays to its right with an ArUco marker on each, and the vehicle spawned on the road |
-| `task2c.py` | The boilerplate. You fill in **one function**, `parking_manoeuvre()` |
+| `Task_2C.ttt` | CoppeliaSim scene containing the road, two parking bays, ArUco markers, and the vehicle |
+| `task2c.py` | Boilerplate; implement `parking_manoeuvre()` |
 
-## What is done for you
+**What the boilerplate provides**
+- Camera reading and marker detection.
+- The vehicle's pose relative to the target parking bay.
+- Steering-angle splitting across the two front wheels using the Task 1A geometry.
 
-Everything to do with the camera: reading it, finding the marker, and working
-out from it where the vehicle is relative to the bay. You also get the
-steering split across the two front wheels (your Task 1A geometry).
+**Implementation**
 
-## What you write
+Complete `parking_manoeuvre(pose)`. The `pose` argument contains the vehicle's position and orientation relative to the target bay:
 
-The parking manoeuvre. Every frame, `parking_manoeuvre(pose)` is handed where
-the vehicle is, relative to the target bay:
-
-| Key | What it is |
+| Key | Description |
 |---|---|
-| `lateral` | metres off the bay's centre line - positive = to the left of it |
-| `heading` | radians, relative to the bay's long axis - positive = turned left |
-| `forward` | metres from the vehicle's centre to the marker line |
-| `bearing` | radians, where the marker is in the camera view - positive = left |
+| `lateral` | Distance from the bay centre line in metres; positive means left of the line |
+| `heading` | Heading relative to the bay's long axis in radians; positive means turned left |
+| `forward` | Distance from the vehicle centre to the marker line in metres |
+| `bearing` | Marker position in the camera view in radians; positive means left |
 
-`pose` is `None` on a frame where the marker was not seen. You return a
-steering angle (radians, positive = left), a speed (rad/s), and whether you
-are parked.
+`pose` is `None` in frames where the marker is not detected.
 
-The bays are 0.22 m wide and the vehicle is 0.18 m - about 20 mm to spare
-each side. Steering straight at the marker brings you in on a diagonal and
-does not fit: `lateral` and `heading` both have to reach zero.
+The function must return:
+1. A steering angle in radians (positive means left).
+2. A speed command in rad/s.
+3. A boolean indicating whether the vehicle is parked.
 
-## Running it
+**Parking constraints**
+- Bay width: 0.22 m.
+- Vehicle width: 0.18 m.
+- Approximate clearance: 20 mm on each side.
+- Align both `lateral` and `heading` with zero; steering directly toward the marker creates a diagonal approach that will not fit within the bay.
 
-Open `Task_2C.ttt` in CoppeliaSim, leave the simulation **stopped**, then:
+**Run**
+1. Open `Task_2C.ttt` in CoppeliaSim.
+2. Keep the simulation **stopped**.
+3. Run the script for the required bay:
 
-```sh
-conda activate NV_<Team-ID>
-cd ~/eYRC_26-27_Niti-Vahan/task2c
+```bash
+conda activate NV_3576
+cd task2c
 python task2c.py --bay 0
 ```
 
-The script prints `Waiting for the simulation to start - press Play in CoppeliaSim.` - press Play then. Choose the
-bay on the command line, and make sure both work:
+When the script displays `Waiting for the simulation to start - press Play in CoppeliaSim.`, press **Play**.
 
-```sh
+Test both bays:
+
+```bash
 python task2c.py --bay 0
 python task2c.py --bay 1
 ```
 
-Without `--bay`, the script uses `TARGET_ID` at the top of the file.
+If `--bay` is omitted, the script uses `TARGET_ID` defined near the top of the file.
 
-## Rules
+**Rules**
+- Write code only inside the `ADD YOUR IMPLEMENTATION HERE` block.
+- Do not move the vehicle using `sim.setObjectPosition()`.
+- Do not read positions directly from the simulator; use the supplied `pose`.
+- Do not use `print()`, plots, or `input()` inside `parking_manoeuvre()` when submitting.
 
-- Write code **only** inside the `ADD YOUR IMPLEMENTATION HERE` block.
-- Do **not** move the vehicle yourself with `sim.setObjectPosition()`.
-- Do **not** read positions out of the simulator - everything you need is in `pose`.
-- No `print()`, plots or `input()` inside `parking_manoeuvre()` when you submit.
+---
+
+## Prerequisites
+
+The task instructions refer to the following software and Python packages:
+
+- Python in the `NV_3576` Conda environment created for Task 0.
+- CoppeliaSim for Tasks 1B, 2A, and 2C.
+- OpenCV (`cv2`) and NumPy for the image-processing tasks.
+- `coppeliasim_zmqremoteapi_client` for the Task 2A simulator connection.
+- The `eyantra-autoeval` command-line tool for Task 2B evaluation.
+
+The task notes indicate that the Task 0 environment should already contain the required dependencies. If a dependency is missing, consult the official eYRC setup instructions rather than installing unverified versions.
+
+## Environment setup
+
+Activate your team environment before running a task:
+
+```bash
+conda activate NV_3576
+```
+
+Replace `<Team-ID>` with your actual team identifier. Then move into the relevant task directory before running its script.
+
+## Repository layout
+
+The task instructions identify the following files and folders. Your actual repository may contain additional files:
+
+```text
+.
+├── task1a/
+│   └── ackermann_steering.py
+├── task1b/
+│   ├── path_tracking.py
+│   └── Task_1B.ttt
+├── task1c/
+│   ├── lane_detection.py
+│   └── public/
+│       ├── clip_01.mp4
+│       └── ...
+├── task2a/
+│   ├── task2a.py
+│   └── Task_2A.ttt
+├── task2b/
+│   ├── sign_obstacle_detection.py
+│   ├── public/
+│   └── reference_images/
+└── task2c/
+    ├── task2c.py
+    └── Task_2C.ttt
+```
+
+This is an indicative layout based on the supplied task notes; adjust it to match the actual folders and filenames in your repository.
+
+## Important implementation notes
+
+- Implement only the functions specified for each task.
+- Keep provided boilerplate, evaluation code, and simulator interfaces unchanged unless the official task instructions explicitly permit changes.
+- Do not add visualisation, logging, or interactive input inside functions where the task rules prohibit it.
+- Use the provided constants and pose/detection data instead of hardcoding values or reading restricted simulator state.
+- Check the official theme book for the complete rules, marking criteria, and submission procedure.
+
+## Submission
+
+Task-specific submission requirements differ:
+
+- **Task 1A:** Rename the completed file to `NV_Task1A.py`.
+- **Tasks 1B, 1C, 2A, 2B, and 2C:** Follow the relevant Submission page or Submission Procedure in the official eYRC theme book.
+
+Before submitting, verify that your implementation follows the task-specific restrictions and that the required files are named and packaged as specified by eYRC.
+
+---
+
+**Niti Vahan | eYRC 2026–27**

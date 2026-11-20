@@ -31,34 +31,37 @@ WHEELBASE             = 0.120     # L  metres
 TRACK_WIDTH           = 0.110     # W  metres
 WHEEL_OFFSET          = 0.0275    # O  metres  (kingpin to wheel centre)
 MAX_STEER             = math.radians(40.0)
-MAX_LANE_CHANGE_STEER = math.radians(28.0)  # Smooth shift without losing turn authority
+MAX_LANE_CHANGE_STEER = math.radians(25.0)  # Smooth shift without boundary overshoot
 MAX_STEER_BAY         = 0.15                # Maximum steering inside bay walls (rad)
 
 # =============================================================================
-# §2  SPEED CONSTANTS  (rad/s)
+# §2  SPEED CONSTANTS  (rad/s) — Balanced for Stability & ~145s Lap Time
 # =============================================================================
 
-BASE_CRUISE_SPEED      = 1.60   # Normal cruise speed (<= 3.0 rad/s limit)
-SPEED_ZONE_SPEED       = 1.15   # Inside Speed-40 zone (<= 1.2 rad/s limit)
-LANE_CHANGE_SPEED      = 1.15   # Controlled speed during S-curve lane change
-PARKING_APPROACH_SPEED = 0.85   # Controlled approach speed entering parking straight
-PARKING_DOCK_SPEED     = 0.45   # Creep inside bay
+BASE_CRUISE_SPEED      = 2.45   # Stable high-speed cruise (< 3.0 rad/s limit)
+CORNER_CRUISE_SPEED    = 1.75   # Minimum speed on sharp 90-degree turns
+SPEED_ZONE_SPEED       = 1.16   # Regulated speed in Speed-40 zone (<= 1.20 rad/s)
+HOSPITAL_APPROACH_SPD  = 1.65   # Controlled speed while aligning with Hospital pickup
+LANE_CHANGE_SPEED      = 1.65   # Controlled speed during S-curve obstacle lane shift
+PARKING_APPROACH_SPEED = 1.05   # Slow down once ArUco ID_1 is spotted around final turn
+PARKING_DOCK_SPEED     = 0.50   # Creep inside bay
 
 # =============================================================================
-# §3  TIMING & COUNTING CONSTANTS
+# §3  TIMING & DISTANCE CONSTANTS
 # =============================================================================
 
 HOSPITAL_HALT_DURATION      = 5.0    # Mandatory stop (sim seconds)
-HOSPITAL_SUPPRESS_WINDOW    = 35.0   # Sim seconds to suppress Hospital sign after halt
-LANE_CHANGE_DURATION        = 7.5    # Sim seconds for smooth S-curve lane shift
-OBSTACLE_COOLDOWN_TIME      = 14.0   # Sim seconds cooldown after lane change starts
-OBSTACLE_REARM_FRAMES       = 8      # Obstacle-free frames in active lane to re-arm
+HOSPITAL_APPROACH_RADIANS   = 31.0   # ~68 cm forward travel after first spotting Hospital sign
+HOSPITAL_SUPPRESS_WINDOW    = 25.0   # Sim seconds to suppress Hospital sign after halt
+LANE_CHANGE_DURATION        = 5.0    # Sim seconds for smooth S-curve lane shift at 1.65 rad/s
+OBSTACLE_COOLDOWN_TIME      = 9.5    # Sim seconds cooldown after lane change starts
+OBSTACLE_REARM_FRAMES       = 7      # Obstacle-free frames in active lane to re-arm
 OBSTACLE_CONFIRM_FRAMES     = 2      # Consecutive frames to confirm obstacle in lane
 SPEED_SIGN_MIN_AREA         = 115    # px^2 min area to detect Speed40 from either lane
-SPEED_SIGN_REARM_FRAMES     = 15     # Frames of absence to re-arm Speed40 sign
-SPEED_SIGN_COOLDOWN_SECONDS = 15.0   # Sim seconds between 1st and 2nd Speed40 sign
-PARKING_SEARCH_DELAY        = 65.0   # Sim seconds after 2nd Speed40 sign before bay search
-ARUCO_CONFIRM_FRAMES        = 2      # Consecutive valid-pose frames to lock onto Bay ID_1
+SPEED_SIGN_REARM_FRAMES     = 14     # Frames of absence to re-arm Speed40 sign
+SPEED_SIGN_COOLDOWN_SECONDS = 10.0   # Sim seconds between 1st and 2nd Speed40 sign
+ARUCO_CONFIRM_FRAMES        = 2      # Consecutive frames required to lock onto Bay ID_1
+PARKED_HOLD_DURATION        = 2.0    # Sim seconds to hold 0.0 rad/s so chassis velocity = 0
 
 # =============================================================================
 # §4  CAMERA & ARUCO CONSTANTS
@@ -80,8 +83,8 @@ MARKER_CORNERS_3D = np.array([[-_HM,  _HM, 0.0],
                               [ _HM,  _HM, 0.0],
                               [ _HM, -_HM, 0.0],
                               [-_HM, -_HM, 0.0]], dtype=np.float32)
-YAW_BLEND          = 0.12
-YAW_GATE           = math.radians(15.0)
+YAW_BLEND          = 0.15
+YAW_GATE           = math.radians(22.0)
 AMBIGUITY_RATIO    = 1.5
 BAY_MOUTH_FORWARD  = 0.37
 BAY_MIDDLE_FORWARD = 0.19
@@ -216,13 +219,13 @@ def build_obstacle_mask(hsv, sign_boxes=None) -> np.ndarray:
     return merged
 
 # =============================================================================
-# §9  LANE DETECTION & CONTROLLER (Task 2A Architecture + Asphalt/Grass Check)
+# §9  LANE DETECTION & GAIN-STABILIZED CONTROLLER (Task 2A Architecture)
 # =============================================================================
 
 class LaneDetector:
     """
     Task 2A multi-band lane detector (`360..400` near, `300..340` far) with
-    asphalt/grass boundary verification.
+    asphalt/grass boundary verification and straightaway damping.
     """
 
     def __init__(self):
@@ -261,7 +264,6 @@ class LaneDetector:
         current_lane = active_lane or self.lane or 'outer'
         self.lane = current_lane
 
-        # Road markings segmentation
         mask_y = cv2.inRange(hsv,
                              np.array([15,  70,  70], dtype=np.uint8),
                              np.array([42, 255, 255], dtype=np.uint8))
@@ -269,7 +271,6 @@ class LaneDetector:
                              np.array([0,   0, 165], dtype=np.uint8),
                              np.array([180, 48, 255], dtype=np.uint8))
 
-        # Road asphalt (dark grey/black) & grass (green) for boundary side verification
         mask_asphalt = cv2.inRange(hsv,
                                    np.array([0,   0,  15], dtype=np.uint8),
                                    np.array([180, 60, 100], dtype=np.uint8))
@@ -280,7 +281,6 @@ class LaneDetector:
         mask_y[:180, :] = 0;  mask_y[450:, :] = 0
         mask_w[:180, :] = 0;  mask_w[450:, :] = 0
 
-        # Blank out traffic signs
         if sign_boxes:
             for (sx, sy, sw, sh) in sign_boxes:
                 y1 = max(0, int(sy) - 15);  y2 = min(480, int(sy + sh) + 15)
@@ -288,7 +288,6 @@ class LaneDetector:
                 mask_w[y1:y2, x1:x2] = 0
                 mask_y[y1:y2, x1:x2] = 0
 
-        # Blank out red obstacles on road
         if obstacle_mask is not None:
             mask_w[obstacle_mask > 0] = 0
             mask_y[obstacle_mask > 0] = 0
@@ -297,7 +296,6 @@ class LaneDetector:
         def extract_band_both(r_top: int, r_bot: int, r_mid: float):
             w_half = 140.0 + 0.6 * (r_mid - 280.0)
 
-            # 1. Extract white center divider (must be a narrow dash bordered by dark asphalt)
             w_row_centres = []
             for row in range(r_top, r_bot):
                 w_cols = np.where(mask_w[row, :] > 0)[0]
@@ -318,7 +316,6 @@ class LaneDetector:
 
             w_pos = float(np.median(w_row_centres)) if len(w_row_centres) >= 4 else None
 
-            # 2. Extract outer (y_left) and inner (y_right) yellow boundaries
             y_left_rows  = []
             y_right_rows = []
 
@@ -366,7 +363,6 @@ class LaneDetector:
             y_left  = float(np.median(y_left_rows))  if len(y_left_rows)  >= 3 else None
             y_right = float(np.median(y_right_rows)) if len(y_right_rows) >= 3 else None
 
-            # Compute outer lane centre (Task 2A geometry)
             cx_out = None
             if y_left is not None and w_pos is not None and (w_pos - y_left) >= 60.0:
                 cx_out = (y_left + w_pos) / 2.0
@@ -377,7 +373,6 @@ class LaneDetector:
             elif y_right is not None:
                 cx_out = y_right - 3.0 * w_half
 
-            # Compute inner lane centre (Task 2A geometry)
             cx_inn = None
             if w_pos is not None and y_right is not None and (y_right - w_pos) >= 60.0:
                 cx_inn = (w_pos + y_right) / 2.0
@@ -390,7 +385,6 @@ class LaneDetector:
 
             return cx_out, cx_inn
 
-        # Task 2A bands: Near (360..400, mid 380) and Far (300..340, mid 320)
         near_out, near_inn = extract_band_both(360, 400, 380.0)
         far_out,  far_inn  = extract_band_both(300, 340, 320.0)
 
@@ -438,38 +432,50 @@ class LaneDetector:
 
     def compute_control(self, detection: dict,
                         target_base_speed: float,
-                        is_changing_lane: bool = False):
+                        is_changing_lane: bool = False,
+                        hold_regulated_speed: bool = False):
         cx_near = max(0.0, min(639.0, float(detection['cx_near'])))
         cx_far  = max(0.0, min(639.0, float(detection['cx_far'])))
 
-        e_lat = (320.0 - cx_near) / 160.0
-        dx = cx_far - cx_near
+        raw_err = 320.0 - cx_near
+        e_lat   = 0.0 if abs(raw_err) < 2.0 else raw_err / 160.0
+        dx      = cx_far - cx_near
         theta_curve = math.atan2(dx, 120.0)
 
         d_e = e_lat - self.prev_e_lat
         self.prev_e_lat = e_lat
 
-        k_p     = 1.90
-        k_curve = 0.85
-        k_d     = 0.08
+        # Damped proportional gain on straightaways prevents high-speed wobble;
+        # full Task 2A gain on curves ensures crisp 90-degree cornering.
+        if abs(theta_curve) < 0.12 and abs(e_lat) < 0.18 and not is_changing_lane:
+            k_p     = 1.45
+            k_curve = 0.80
+            k_d     = 0.14
+        else:
+            k_p     = 1.90
+            k_curve = 0.85
+            k_d     = 0.10
 
         raw_delta = k_p * e_lat - k_curve * theta_curve + k_d * d_e
 
         steer_limit = MAX_LANE_CHANGE_STEER if is_changing_lane else MAX_STEER
-        raw_delta = max(-steer_limit, min(steer_limit, raw_delta))
+        raw_delta   = max(-steer_limit, min(steer_limit, raw_delta))
 
         delta = 0.35 * raw_delta + 0.65 * self.last_delta
         self.last_delta = delta
 
-        steer_ratio = abs(delta) / MAX_STEER
-        curve_ratio = min(1.0, abs(theta_curve) / 0.50)
-        speed_factor = max(0.45, 1.0 - 0.45 * steer_ratio - 0.25 * curve_ratio)
-        speed = max(0.75, target_base_speed * speed_factor)
+        if hold_regulated_speed or is_changing_lane:
+            return float(delta), float(target_base_speed)
+
+        steer_ratio  = abs(delta) / MAX_STEER
+        curve_ratio  = min(1.0, abs(theta_curve) / 0.50)
+        speed_factor = max(0.70, 1.0 - 0.22 * steer_ratio - 0.16 * curve_ratio)
+        speed        = max(CORNER_CRUISE_SPEED, target_base_speed * speed_factor)
 
         return float(delta), float(speed)
 
 # =============================================================================
-# §10  SIGN DETECTION (Task 2B Architecture with Strict Building Rejection)
+# §10  SIGN DETECTION
 # =============================================================================
 
 def _classify_blue_letter(white_mask: np.ndarray) -> str:
@@ -509,14 +515,14 @@ def detect_signs(hsv, white_global) -> list:
     if cnts_red and hier_red is not None:
         for i, c in enumerate(cnts_red):
             area = cv2.contourArea(c)
-            if area < 115 or area > 2200:
+            if area < 90 or area > 3200:
                 continue
 
             if hier_red[0][i][3] != -1:
                 continue
 
             x, y, w, h = cv2.boundingRect(c)
-            if y > H * 0.75 or (y + h) > 285 or w > 85 or h > 85:
+            if y > H * 0.76 or (y + h) > 295 or w > 95 or h > 95:
                 continue
 
             asp = w / float(h)
@@ -565,10 +571,10 @@ def detect_signs(hsv, white_global) -> list:
     cnts_blue, _ = cv2.findContours(blue_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     for c in cnts_blue:
         area = cv2.contourArea(c)
-        if area < 140 or area > 2200:
+        if area < 130 or area > 6500:
             continue
         x, y, w, h = cv2.boundingRect(c)
-        if y > H * 0.75 or (y + h) > 285 or w > 85 or h > 85:
+        if y > H * 0.78 or (y + h) > 315 or w > 125 or h > 125:
             continue
 
         asp = w / float(h)
@@ -580,7 +586,7 @@ def detect_signs(hsv, white_global) -> list:
             continue
 
         peri = cv2.arcLength(c, True)
-        circ = 4.0 * np.pi * area / (peri * peri + 1e-5)
+        circ = 4.0 * math.pi * area / (peri * peri + 1e-5)
         if circ < 0.62:
             continue
 
@@ -589,10 +595,14 @@ def detect_signs(hsv, white_global) -> list:
         crop_white = white_global[y:y+h, x:x+w]
         white_in_sign = cv2.bitwise_and(crop_white, crop_white, mask=sign_mask)
         white_ratio = float(np.mean(white_in_sign > 0))
-        if not (0.06 <= white_ratio <= 0.50):
+        if not (0.07 <= white_ratio <= 0.48):
             continue
 
         label = _classify_blue_letter(white_in_sign)
+        # Strict size ceiling on Parking signs so blue building walls (e.g. Area 8276) are rejected
+        if label == "Parking" and (area > 2200 or w > 85 or h > 85):
+            continue
+
         detections.append({
             "label": label,
             "area":  int(round(float(area))),
@@ -638,7 +648,7 @@ def detect_obstacle_in_lane(hsv, active_lane: str,
     candidates = []
     for c in cnts:
         area = cv2.contourArea(c)
-        if not (2000 <= area <= 16500):
+        if not (1900 <= area <= 16500):
             continue
 
         x, y, w, h = cv2.boundingRect(c)
@@ -646,7 +656,7 @@ def detect_obstacle_in_lane(hsv, active_lane: str,
             continue
 
         y_bot = y + h
-        if not (205 <= y_bot <= 435):
+        if not (200 <= y_bot <= 435):
             continue
 
         ar = w / float(h)
@@ -654,7 +664,7 @@ def detect_obstacle_in_lane(hsv, active_lane: str,
             continue
 
         raw_px = int(np.sum(red_raw[y:y+h, x:x+w] > 0))
-        if raw_px < 80:
+        if raw_px < 75:
             continue
 
         obs_cx = x + w / 2.0
@@ -686,23 +696,20 @@ def detect_obstacle_in_lane(hsv, active_lane: str,
 # =============================================================================
 
 def find_marker_corners(frame, target_id: int = TARGET_BAY_ID):
-    """
-    Strictly matches `target_id` (ID 1) at distances up to ~1.10 m so the
-    parking S-curve starts early right after exiting the final corner.
-    """
+    """Strictly matches `target_id` (ID 1)."""
     if frame is None or frame.size == 0:
         return None, None
     try:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
         try:
             params = cv2.aruco.DetectorParameters()
-            params.minMarkerPerimeterRate = 0.025
+            params.minMarkerPerimeterRate = 0.022
             detector = cv2.aruco.ArucoDetector(
                 cv2.aruco.getPredefinedDictionary(ARUCO_DICT), params)
             corners, ids, _ = detector.detectMarkers(gray)
         except (AttributeError, Exception):
             params = cv2.aruco.DetectorParameters_create()
-            params.minMarkerPerimeterRate = 0.025
+            params.minMarkerPerimeterRate = 0.022
             corners, ids, _ = cv2.aruco.detectMarkers(
                 gray, cv2.aruco.Dictionary_get(ARUCO_DICT), parameters=params)
 
@@ -764,8 +771,8 @@ class PoseEstimator:
         yaw_seen, rho_now = self._pnp(corners)
         if self.rho is None:
             self.rho = rho_now
-            if yaw_seen is not None and abs(yaw_seen) < math.radians(30.0):
-                self.heading = 0.5 * yaw_seen
+            if yaw_seen is not None and abs(yaw_seen) < YAW_GATE:
+                self.heading = 0.55 * yaw_seen
         rho_prev, self.rho = self.rho, 0.65 * self.rho + 0.35 * rho_now
 
         ds = min(max((rho_prev - self.rho) / max(math.cos(bearing), 0.3), 0.0), 0.008)
@@ -785,7 +792,7 @@ class PoseEstimator:
         }
 
 # =============================================================================
-# §13  PARKING CONTROLLER (Adaptive Runway for Inner/Outer Lane Entry)
+# §13  PARKING CONTROLLER (Symmetric Left/Right S-Curve + Guaranteed Bay Entry)
 # =============================================================================
 
 class ParkController:
@@ -795,14 +802,14 @@ class ParkController:
     def reset(self):
         self.initialized   = False
         self.parked        = False
-        self.is_bay_1      = True
-        self.d_start       = 1.0
-        self.l_start       = 0.35
-        self.d_merge       = 0.32
+        self.l_start       = -0.30
+        self.d_start       = 0.80
+        self.d_merge       = 0.35
+        self.lead_bias     = 0.0
         self.last_pose     = {
-            'lateral': 0.35,
+            'lateral': -0.30,
             'heading': 0.0,
-            'forward': 1.0,
+            'forward': 0.80,
             'bearing': 0.0,
         }
         self.prev_heading  = 0.0
@@ -817,9 +824,9 @@ class ParkController:
 
         if pose is None:
             self.none_count += 1
-            if not self.initialized or self.seen_frames < 12 or self.last_pose['forward'] > 0.32:
+            if not self.initialized or self.seen_frames < 8 or self.last_pose['forward'] > 0.33:
                 return 0.0, 0.0, False
-            est_forward = self.last_pose['forward'] - 0.0025
+            est_forward = self.last_pose['forward'] - 0.003
             self.last_pose['forward'] = max(BAY_MIDDLE_FORWARD - 0.01, est_forward)
             curr_pose = self.last_pose
         else:
@@ -833,24 +840,27 @@ class ParkController:
         forward = float(curr_pose.get('forward', 1.0))
 
         # Stop when vehicle reaches the middle of the bay
-        if forward <= (BAY_MIDDLE_FORWARD + 0.005) and self.seen_frames >= 12:
+        if forward <= (BAY_MIDDLE_FORWARD + 0.008) and self.seen_frames >= 8:
             self.parked = True
             self.last_speed = 0.0
             self.last_steering = 0.0
             return 0.0, 0.0, True
 
         if not self.initialized:
-            self.l_start  = lateral
-            self.is_bay_1 = (TARGET_BAY_ID == 1) or bool(lateral > 0.28)
-            # Dynamically guarantee at least 0.35 m of S-curve runway even if the
-            # marker is acquired close to the bay after rounding the bottom corner
-            self.d_merge  = min(BAY_MOUTH_FORWARD + 0.10, max(0.24, forward - 0.35))
-            self.d_start  = max(self.d_merge + 0.22, forward)
+            self.l_start   = lateral
+            # Symmetric lead bias for both left-side (lateral < 0) and right-side (lateral > 0) bays
+            if abs(lateral) > 0.25:
+                self.lead_bias = -0.022 if lateral > 0.0 else 0.022
+            else:
+                self.lead_bias = 0.0
+            # Dynamically guarantee at least 0.34m of Zone 1 S-curve runway
+            self.d_merge   = min(0.42, max(0.24, forward - 0.34))
+            self.d_start   = max(self.d_merge + 0.20, forward)
             self.initialized = True
             print(f"[PARKING INIT] d_start={self.d_start:.2f}m, l_start={self.l_start:.2f}m, "
                   f"d_merge={self.d_merge:.2f}m")
 
-        lead_bias = -0.022 if self.is_bay_1 else 0.0
+        lead_bias = self.lead_bias
 
         # ZONE 1: S-Curve Transition into the Bay
         if forward > self.d_merge:
@@ -867,7 +877,7 @@ class ParkController:
             raw_steer = (-1.15 * err_head) - math.atan(3.5 * err_lat) - (0.20 * d_head)
             steering  = max(-MAX_STEER, min(MAX_STEER, raw_steer))
             steer_ratio = abs(steering) / MAX_STEER
-            speed     = 0.95 * (1.0 - 0.25 * steer_ratio)
+            speed     = 1.05 * (1.0 - 0.25 * steer_ratio)
 
         # ZONE 2: Bay Mouth Glide-In
         elif forward > BAY_MOUTH_FORWARD:
@@ -879,9 +889,9 @@ class ParkController:
             d_head   = heading - self.prev_heading
 
             raw_steer = (-1.60 * err_head) - (2.80 * err_lat) - (0.25 * d_head)
-            lim       = 0.45 if abs(lateral) > 0.06 else 0.25
+            lim       = 0.45 if abs(lateral) > 0.05 else 0.25
             steering  = max(-lim, min(lim, raw_steer))
-            speed     = 0.55
+            speed     = 0.60
 
         # ZONE 3: Inside Bay Creep to Stop Target
         else:
@@ -890,11 +900,10 @@ class ParkController:
             d_head   = heading - self.prev_heading
 
             raw_steer = (-1.80 * err_head) - (3.20 * err_lat) - (0.05 * d_head)
-            # Keep steering authority if still pulling laterally into the bay
-            lim       = 0.40 if abs(lateral) > 0.05 else MAX_STEER_BAY
+            lim       = 0.40 if abs(lateral) > 0.045 else MAX_STEER_BAY
             steering  = max(-lim, min(lim, raw_steer))
             dist_to_stop = max(0.0, forward - BAY_MIDDLE_FORWARD)
-            speed     = max(0.25, min(PARKING_DOCK_SPEED, 0.25 + 1.20 * dist_to_stop))
+            speed     = max(0.28, min(PARKING_DOCK_SPEED, 0.28 + 1.20 * dist_to_stop))
 
         self.prev_heading  = heading
         self.last_steering = steering
@@ -955,10 +964,20 @@ def run_task3():
     state       = RobotState.LANE_FOLLOWING
     active_lane = 'outer'
 
-    has_halted_at_hospital   = False
-    hospital_halt_start_time = 0.0
-    last_hospital_time       = -999.0
+    # Wheel-rotation odometry
+    total_wheel_rad          = 0.0
+    prev_sim_time            = None
+    last_commanded_speed     = 0.0
 
+    # Hospital pickup alignment state
+    has_halted_at_hospital   = False
+    hospital_approaching     = False
+    hospital_first_seen_rad  = 0.0
+    hospital_halt_start_time = 0.0
+    hospital_peak_area       = 0
+    hospital_gone_frames     = 0
+
+    # Speed 40 zone state
     in_speed_zone            = False
     speed_zone_completed     = False
     last_speed_sign_time     = -999.0
@@ -970,7 +989,9 @@ def run_task3():
     parking_zone_active      = False
     last_parking_sign_time   = -999.0
     aruco_confirm_frames     = 0
+    parked_hold_start_time   = None
 
+    # Obstacle avoidance state
     obstacles_avoided        = 0
     last_obstacle_time       = -999.0
     obstacle_armed           = True
@@ -988,6 +1009,32 @@ def run_task3():
                 sim.simulation_advancing_firstafterstop):
 
             current_sim_time = sim.getSimulationTime()
+            if prev_sim_time is None:
+                dt = 0.05
+            else:
+                dt = max(0.0, min(current_sim_time - prev_sim_time, 0.25))
+            prev_sim_time = current_sim_time
+
+            if state not in (RobotState.HALTING_HOSPITAL, RobotState.PARKED):
+                total_wheel_rad += last_commanded_speed * dt
+
+            # ==========================================================
+            # STATE: PARKED (Hold 0.0 velocity for 2.0s so vehicle is 100% stationary)
+            # ==========================================================
+            if state == RobotState.PARKED:
+                stop_vehicle(sim, handles)
+                last_commanded_speed = 0.0
+                if (current_sim_time - parked_hold_start_time) >= PARKED_HOLD_DURATION:
+                    print("\n" + "=" * 55)
+                    print(f">>> TASK 3 MISSION COMPLETED AT SIM TIME {current_sim_time:.2f}s <<<")
+                    print(f"- Hospital Halt     : {has_halted_at_hospital}")
+                    print(f"- Speed 40 Zone     : {speed_zone_completed}")
+                    print(f"- Obstacles Avoided : {obstacles_avoided}")
+                    print(f"- Bay Docking       : SUCCESS (Stationary Hold Verified)")
+                    print("=" * 55 + "\n")
+                    sim.stopSimulation()
+                    break
+                continue
 
             frame, hsv = read_frame(sim, handles['vision_sensor'])
             if frame is None or hsv is None:
@@ -998,10 +1045,8 @@ def run_task3():
             raw_signs    = detect_signs(hsv, white_global)
             sign_boxes   = [s['bbox'] for s in raw_signs if 'bbox' in s]
 
-            # Mask out red obstacles on road so their windshields never corrupt lane lines
             obs_mask = build_obstacle_mask(hsv, sign_boxes=sign_boxes)
 
-            # Filter out any red sign detection whose bounding box overlaps an on-road obstacle
             filtered_signs = []
             for s in raw_signs:
                 sx, sy, sw, sh = s['bbox']
@@ -1011,7 +1056,6 @@ def run_task3():
                         continue
                 filtered_signs.append(s)
 
-            # Suppress ONLY Hospital sign re-detection while departing the Hospital
             if has_halted_at_hospital and (
                     current_sim_time - (hospital_halt_start_time + HOSPITAL_HALT_DURATION)
                     < HOSPITAL_SUPPRESS_WINDOW):
@@ -1024,23 +1068,24 @@ def run_task3():
             # ==========================================================
             if state == RobotState.HALTING_HOSPITAL:
                 stop_vehicle(sim, handles)
+                last_commanded_speed = 0.0
                 elapsed = current_sim_time - hospital_halt_start_time
                 if elapsed >= HOSPITAL_HALT_DURATION:
                     has_halted_at_hospital = True
+                    hospital_approaching   = False
                     state = RobotState.LANE_FOLLOWING
                     print(f"[HOSPITAL] {HOSPITAL_HALT_DURATION:.1f}s halt completed "
                           f"at Sim Time {current_sim_time:.2f}s! Resuming cruise.")
                 continue
 
             # ==========================================================
-            # STATE: PARKING_MANEUVER (Task 2C Benchmark Controller)
+            # STATE: PARKING_MANEUVER
             # ==========================================================
             elif state == RobotState.PARKING_MANEUVER:
                 corners, _ = find_marker_corners(frame, TARGET_BAY_ID)
                 pose       = pose_estimator.update(corners, park_controller.last_steering)
 
-                # If marker is lost before entering the bay mouth, resume lane following
-                if pose is None and park_controller.last_pose['forward'] > 0.32:
+                if pose is None and park_controller.last_pose['forward'] > 0.33:
                     if park_controller.none_count > 15:
                         print("[PARKING] Marker lost before bay mouth — resuming lane tracking.")
                         park_controller.reset()
@@ -1053,24 +1098,48 @@ def run_task3():
 
                 if is_parked:
                     stop_vehicle(sim, handles)
-                    state = RobotState.PARKED
-                    print("\n" + "=" * 55)
-                    print(">>> TASK 3 MISSION SUCCESSFULLY COMPLETED <<<")
-                    print(f"- Hospital Halt     : {has_halted_at_hospital}")
-                    print(f"- Speed 40 Zone     : {speed_zone_completed}")
-                    print(f"- Obstacles Avoided : {obstacles_avoided}")
-                    print(f"- Bay Docking       : SUCCESS")
-                    print("=" * 55 + "\n")
-                    time.sleep(0.8)
-                    sim.stopSimulation()
-                    break
+                    last_commanded_speed   = 0.0
+                    parked_hold_start_time = current_sim_time
+                    state                  = RobotState.PARKED
+                    print(f"[PARKING] Target reached at Sim Time {current_sim_time:.2f}s — "
+                          f"holding stationary brake for {PARKED_HOLD_DURATION:.1f}s.")
                 else:
                     drive(sim, handles, steering, speed)
+                    last_commanded_speed = speed
                 continue
 
             # ==========================================================
-            # TRAFFIC SIGN PERCEPTION (Active in both LANE_FOLLOWING & LANE_CHANGING)
+            # TRAFFIC SIGN PERCEPTION (Hospital Pickup Alignment, Speed40, School, Parking)
             # ==========================================================
+            if not has_halted_at_hospital:
+                hosp_candidates = [s for s in signs if s['label'] == 'Hospital' and s['area'] >= 145]
+                if hosp_candidates:
+                    best_h = max(hosp_candidates, key=lambda x: x['area'])
+                    if not hospital_approaching:
+                        hospital_approaching    = True
+                        hospital_first_seen_rad = total_wheel_rad
+                    hospital_gone_frames = 0
+                    hospital_peak_area   = max(hospital_peak_area, best_h['area'])
+                elif hospital_approaching:
+                    hospital_gone_frames += 1
+
+                if hospital_approaching:
+                    rad_since_seen = total_wheel_rad - hospital_first_seen_rad
+                    reached_pickup = (
+                        rad_since_seen >= HOSPITAL_APPROACH_RADIANS
+                        or hospital_peak_area >= 780
+                        or (hospital_peak_area >= 220 and rad_since_seen >= 20.0 and hospital_gone_frames >= 2)
+                    )
+                    if reached_pickup:
+                        hospital_halt_start_time = current_sim_time
+                        state                    = RobotState.HALTING_HOSPITAL
+                        stop_vehicle(sim, handles)
+                        last_commanded_speed     = 0.0
+                        print(f"\n[TRAFFIC RULE - HOSPITAL] Halting at pickup point "
+                              f"(Travel: +{rad_since_seen:.1f} rad, Peak Area: {hospital_peak_area}) "
+                              f"at Sim Time {current_sim_time:.2f}s.")
+                        continue
+
             if any(s['label'] == 'Speed40' and s['area'] >= SPEED_SIGN_MIN_AREA
                    for s in signs):
                 speed_sign_absent_frames = 0
@@ -1083,19 +1152,7 @@ def run_task3():
                 label = s['label']
                 area  = s['area']
 
-                if (label == 'Hospital'
-                        and not has_halted_at_hospital
-                        and area >= 150
-                        and (current_sim_time - last_hospital_time) > 3.0):
-                    hospital_halt_start_time = current_sim_time
-                    last_hospital_time       = current_sim_time
-                    state                    = RobotState.HALTING_HOSPITAL
-                    stop_vehicle(sim, handles)
-                    print(f"\n[TRAFFIC RULE - HOSPITAL] Halting for "
-                          f"{HOSPITAL_HALT_DURATION:.1f}s at Sim Time {current_sim_time:.2f}s.")
-                    break
-
-                elif label == 'Speed40':
+                if label == 'Speed40':
                     if (not in_speed_zone and not speed_zone_completed
                             and speed_sign_armed and area >= SPEED_SIGN_MIN_AREA):
                         in_speed_zone            = True
@@ -1123,50 +1180,46 @@ def run_task3():
                               f"(Area: {area}) — proceeding safely.")
 
                 elif (label == 'Parking'
-                        and has_halted_at_hospital
                         and speed_zone_completed
-                        and (current_sim_time - speed_zone_exit_time) >= 45.0
+                        and (current_sim_time - speed_zone_exit_time) >= 28.0
                         and not parking_zone_active
-                        and area >= 140
+                        and area >= 135
                         and (current_sim_time - last_parking_sign_time) > 3.0):
                     last_parking_sign_time = current_sim_time
                     parking_zone_active    = True
                     print(f"\n[TRAFFIC RULE - PARKING] Parking sign detected (Area: {area})! "
-                          f"Maintaining '{active_lane}' lane and scanning for ArUco ID_1.")
-
-            if state == RobotState.HALTING_HOSPITAL:
-                continue
+                          f"Scanning for ArUco ID_{TARGET_BAY_ID}.")
 
             # ==========================================================
-            # ARUCO BAY MARKER CHECK
-            # Only active after driving down the right-hand straight (>= 65s after
-            # exiting Speed 40 zone) and when not mid-lane-change.
+            # ARUCO BAY MARKER CHECK (Supports Left-Side & Right-Side Bays)
             # ==========================================================
-            ready_for_parking_search = (
-                has_halted_at_hospital
+            can_scan_aruco = (
+                state == RobotState.LANE_FOLLOWING
                 and speed_zone_completed
-                and state == RobotState.LANE_FOLLOWING
-                and (parking_zone_active
-                     or (current_sim_time - speed_zone_exit_time) >= PARKING_SEARCH_DELAY)
-                and (current_sim_time - last_obstacle_time) >= 10.0
+                and (parking_zone_active or (current_sim_time - speed_zone_exit_time) >= 35.0)
+                and (current_sim_time - last_obstacle_time) >= 6.0
             )
 
-            if ready_for_parking_search:
+            aruco_in_view_ahead = False
+            if can_scan_aruco:
                 corners, marker_id = find_marker_corners(frame, TARGET_BAY_ID)
                 valid_bay_marker = False
                 if corners is not None:
                     pts     = np.asarray(corners, dtype=np.float32)
                     mk_area = float(cv2.contourArea(pts))
-                    mk_cy   = float(pts[:, 1].mean())
-                    # Lock onto ID_1 from up to ~1.05 m away (area >= 48 px^2)
-                    if mk_area >= 48.0 and 100.0 <= mk_cy <= 360.0:
+                    if mk_area >= 22.0:
                         _, rho_est = PoseEstimator._pnp(pts)
                         brg_est    = PoseEstimator._bearing(pts)
                         fwd_est    = rho_est * math.cos(brg_est) + CAM_AHEAD
                         lat_est    = rho_est * math.sin(brg_est)
-                        # Real parking bay is ahead (0.30..1.12 m) and to the right
-                        if 0.30 <= fwd_est <= 1.12 and 0.04 <= lat_est <= 0.68:
-                            valid_bay_marker = True
+
+                        if 0.25 <= fwd_est <= 1.35:
+                            aruco_in_view_ahead = True
+                            # Lock onto ID_1 at 0.35..0.95m (accepts both negative and positive lateral offsets)
+                            if (mk_area >= 48.0
+                                    and 0.35 <= fwd_est <= 0.95
+                                    and 0.05 <= abs(lat_est) <= 0.80):
+                                valid_bay_marker = True
 
                 if valid_bay_marker:
                     aruco_confirm_frames += 1
@@ -1177,7 +1230,7 @@ def run_task3():
                         pose = pose_estimator.update(corners, lane_detector.last_delta)
                         park_controller.step(pose)
                         state = RobotState.PARKING_MANEUVER
-                        print(f"\n[PARKING] ArUco ID_{marker_id} confirmed — engaging precision docking.")
+                        print(f"\n[PARKING] ArUco ID_{marker_id} confirmed — engaging S-curve docking.")
                         continue
                 else:
                     aruco_confirm_frames = 0
@@ -1189,7 +1242,6 @@ def run_task3():
                 elapsed  = max(0.0, current_sim_time - lane_change_start_time)
                 progress = min(1.0, elapsed / max(LANE_CHANGE_DURATION, 1e-3))
 
-                # Cosine S-curve blend from start_lane (u=0) to target_lane (u=1)
                 u = 0.5 * (1.0 - math.cos(math.pi * progress))
 
                 detection = lane_detector.detect(
@@ -1200,14 +1252,12 @@ def run_task3():
                     start_lane=lane_change_start_lane,
                     blend_u=u,
                 )
-                target_speed = min(
-                    LANE_CHANGE_SPEED,
-                    SPEED_ZONE_SPEED if in_speed_zone else BASE_CRUISE_SPEED
-                )
+                target_speed = SPEED_ZONE_SPEED if in_speed_zone else LANE_CHANGE_SPEED
                 delta, speed = lane_detector.compute_control(
-                    detection, target_speed, is_changing_lane=True
+                    detection, target_speed, is_changing_lane=True, hold_regulated_speed=True
                 )
                 drive(sim, handles, delta, speed)
+                last_commanded_speed = speed
 
                 if elapsed >= LANE_CHANGE_DURATION:
                     active_lane = lane_change_target_lane
@@ -1256,21 +1306,23 @@ def run_task3():
                           f"Smoothly shifting to '{lane_change_target_lane}' lane.")
                     continue
 
-            # Automatically slow down as the vehicle rounds the final corner toward the parking bays
-            approaching_parking_corner = (
-                speed_zone_completed
-                and (current_sim_time - speed_zone_exit_time) >= 75.0
-            )
-            if parking_zone_active or approaching_parking_corner:
-                target_speed = PARKING_APPROACH_SPEED
-            elif in_speed_zone:
+            if in_speed_zone:
                 target_speed = SPEED_ZONE_SPEED
+                hold_flat    = True
+            elif hospital_approaching and not has_halted_at_hospital:
+                target_speed = HOSPITAL_APPROACH_SPD
+                hold_flat    = True
+            elif aruco_in_view_ahead or parking_zone_active:
+                target_speed = PARKING_APPROACH_SPEED
+                hold_flat    = True
             else:
                 target_speed = BASE_CRUISE_SPEED
+                hold_flat    = False
 
             delta, speed = lane_detector.compute_control(
-                detection, target_speed, is_changing_lane=False)
+                detection, target_speed, is_changing_lane=False, hold_regulated_speed=hold_flat)
             drive(sim, handles, delta, speed)
+            last_commanded_speed = speed
 
     except KeyboardInterrupt:
         print("\n[USER] KeyboardInterrupt — stopping vehicle.")
